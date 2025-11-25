@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Config Scanner</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #1d2129;
+            text-align: center;
+        }
+        .upload-section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #1877f2;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        button:hover {
+            background-color: #166fe5;
+        }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+        .sort-button {
+            background-color: #e4e6eb;
+            color: #4b4f56;
+            font-size: 14px;
+            padding: 8px 12px;
+        }
+        .sort-button:hover {
+            background-color: #dcdfe3;
+        }
+        #resultsContent {
+            max-height: 60vh; /* Make the history scrollable */
+            overflow-y: auto;
+            padding-right: 10px; /* Add some padding for the scrollbar */
+        }
+        .scan-card {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+        .scan-card summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            cursor: pointer;
+            background-color: #f7f7f7;
+            position: relative; /* For custom arrow positioning */
+        }
+        .scan-card summary::before {
+            content: '►'; /* Right-pointing triangle */
+            position: absolute;
+            left: 15px;
+            font-size: 1.2em;
+            transition: transform 0.2s;
+        }
+        .scan-card details[open] summary::before {
+            content: '▼'; /* Down-pointing triangle */
+            transform: rotate(0deg); /* No rotation needed if content is already down-pointing */
+        }
+        .scan-card summary .scan-card-header {
+            padding-left: 30px; /* Make space for the arrow */
+        }
+        .scan-card-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .scan-card-header p {
+            margin: 5px 0 0;
+            color: #606770;
+            font-size: 14px;
+        }
+        .scan-card-body {
+            padding: 15px;
+            border-top: 1px solid #eee;
+        }
+        .delete-button {
+            background-color: #fa3e3e;
+            font-size: 12px;
+            padding: 5px 10px;
+        }
+        .delete-button:hover {
+            background-color: #e03030;
+        }
+        pre {
+            background-color: #f0f2f5;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: "Courier New", Courier, monospace;
+        }
+        .message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .message.success { background-color: #d4edda; color: #155724; }
+        .message.error { background-color: #f8d7da; color: #721c24; }
+        .message.info { background-color: #e2e3e5; color: #383d41; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI-Powered Configuration Scanner</h1>
+
+        <div class="upload-section">
+            <input type="file" id="configFile" accept=".env,.yaml,.yml,.json,.toml,.ini,.conf,Dockerfile">
+            <button onclick="uploadFile()">Scan File</button>
+            <div id="uploadMessage" class="message" style="display: none;"></div>
+        </div>
+
+        <div class="settings-section upload-section"> <!-- Reusing upload-section style for consistency -->
+            <h2>Scan Engine Settings</h2>
+            <div>
+                <input type="checkbox" id="engineTruffleHog" checked>
+                <label for="engineTruffleHog">TruffleHog</label>
+            </div>
+            <div>
+                <input type="checkbox" id="engineGitleaks" checked>
+                <label for="engineGitleaks">Gitleaks</label>
+            </div>
+            <button onclick="saveEngineSettings()">Save Settings</button>
+            <div id="settingsMessage" class="message" style="display: none;"></div>
+        </div>
+
+        <div class="results-section">
+            <div class="results-header">
+                <h2>Scan History</h2>
+                <button id="sortButton" class="sort-button" onclick="sortHistory()">Sort by Date (Newest First)</button>
+            </div>
+            <div id="resultsContent">
+                <p>Upload a configuration file to see the scan results here.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let scanHistory = [];
+        let sortOrder = 'desc'; // 'desc' for newest first, 'asc' for oldest first
+
+        // Function to fetch all scan history from the backend and render it
+        async function fetchAndRenderHistory() {
+            try {
+                const response = await fetch('/scans');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch scan history.');
+                }
+                const data = await response.json();
+                // Map the DB structure to what renderScanHistory expects
+                scanHistory = data.map(dbScan => {
+                    // Adjust structure to match what the existing renderScanHistory expects
+                    // The 'results' field holds the full scan details returned by /scan/{id}
+                    // For completed scans, dbScan will contain tool_findings, ai_analysis
+                    // For failed scans, it will have error_message
+                    return {
+                        scanId: dbScan.scan_id,
+                        scanDate: new Date(dbScan.created_at),
+                        status: dbScan.status,
+                        results: {
+                            scan_id: dbScan.scan_id,
+                            status: dbScan.status,
+                            file_info: {
+                                filename: dbScan.filename,
+                                identified_type: dbScan.identified_type
+                            },
+                            tool_findings: dbScan.tool_findings || [],
+                            ai_analysis: dbScan.ai_analysis || ""
+                        },
+                        error: dbScan.error_message
+                    };
+                });
+                renderScanHistory();
+            } catch (error) {
+                console.error('Error fetching scan history:', error);
+                const resultsContent = document.getElementById('resultsContent');
+                resultsContent.innerHTML = `<p style="color: #721c24;">Error loading history: ${error.message}</p>`;
+            }
+        }
+
+        async function deleteScan(scanId) {
+            try {
+                const response = await fetch(`/scan/${scanId}`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Failed to delete scan from the server.');
+                }
+
+                // On successful deletion from the backend, remove from local view
+                const index = scanHistory.findIndex(scan => scan.scanId === scanId);
+                if (index > -1) {
+                    scanHistory.splice(index, 1);
+                }
+                renderScanHistory();
+
+            } catch (error) {
+                console.error('Error deleting scan:', error);
+                // Optionally, show an error message to the user
+                alert(`Could not delete scan: ${error.message}`);
+            }
+        }
+
+        function sortHistory() {
+            sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+            const sortButton = document.getElementById('sortButton');
+            sortButton.textContent = `Sort by Date (${sortOrder === 'desc' ? 'Newest' : 'Oldest'} First)`;
+            
+            scanHistory.sort((a, b) => {
+                const dateA = new Date(a.scanDate);
+                const dateB = new Date(b.scanDate);
+                return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+            });
+            
+            renderScanHistory();
+        }
+
+        function renderScanHistory() {
+            const resultsContent = document.getElementById('resultsContent');
+            if (scanHistory.length === 0) {
+                resultsContent.innerHTML = '<p>Upload a configuration file to see the scan results here.</p>';
+                return;
+            }
+
+            resultsContent.innerHTML = scanHistory.map(scan => {
+                const scanDate = new Date(scan.scanDate).toLocaleString();
+
+                if (scan.status === 'failed') {
+                    return `
+                        <details class="scan-card" open>
+                            <summary>
+                                <div class="scan-card-header">
+                                    <h3 style="color: #721c24;">Scan Failed: ${scan.results.file_info.filename}</h3>
+                                    <p>Scanned on: ${scanDate}</p>
+                                </div>
+                                <button class="delete-button" onclick="deleteScan('${scan.scanId}'); event.stopPropagation();">Delete</button>
+                            </summary>
+                            <div class="scan-card-body">
+                                <h4>Error Details</h4>
+                                <pre style="background-color: #f8d7da; color: #721c24;">${scan.error || 'An unknown error occurred.'}</pre>
+                            </div>
+                        </details>
+                    `;
+                } else if (scan.status === 'queued' || scan.status === 'in_progress') {
+                    return `
+                        <details class="scan-card" open>
+                            <summary>
+                                <div class="scan-card-header">
+                                    <h3 style="color: #007bff;">Scan ${scan.status.replace('_', ' ')}: ${scan.results.file_info.filename}</h3>
+                                    <p>Uploaded on: ${scanDate}</p>
+                                </div>
+                                <button class="delete-button" onclick="deleteScan('${scan.scanId}'); event.stopPropagation();">Delete</button>
+                            </summary>
+                            <div class="scan-card-body">
+                                <p>This scan is currently ${scan.status.replace('_', ' ')}. Please refresh the page in a moment to see the completed results.</p>
+                            </div>
+                        </details>
+                    `;
+                }
+                
+                // Completed scans
+                const findingsCount = (scan.results.tool_findings && scan.results.tool_findings.length) ? scan.results.tool_findings.length : 0;
+                return `
+                    <details class="scan-card">
+                        <summary>
+                            <div class="scan-card-header">
+                                <h3>${scan.results.file_info.filename}</h3>
+                                <p>Scanned on: ${scanDate} | Type: ${scan.results.file_info.identified_type}</p>
+                            </div>
+                            <button class="delete-button" onclick="deleteScan('${scan.scanId}'); event.stopPropagation();">Delete</button>
+                        </summary>
+                        <div class="scan-card-body">
+                            <h4>Tool Findings (${findingsCount})</h4>
+                            ${findingsCount > 0 ? 
+                                `<ul>${scan.results.tool_findings.map(f => `<li><strong>${f.rule_id} (${f.severity}):</strong> ${f.description} (Line ${f.line_number || 'N/A'}) - <code>${f.line_content || 'N/A'}</code></li>`).join('')}</ul>` : 
+                                '<p>No specific tool findings.</p>'}
+                            
+                            <h4>AI Analysis</h4>
+                            <pre>${scan.results.ai_analysis}</pre>
+                        </div>
+                    </details>
+                `;
+            }).join('');
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('configFile');
+            const uploadMessage = document.getElementById('uploadMessage');
+            
+            uploadMessage.className = 'message';
+            uploadMessage.textContent = '';
+            uploadMessage.style.display = 'none';
+
+            if (fileInput.files.length === 0) {
+                uploadMessage.classList.add('error');
+                uploadMessage.textContent = 'Please select a file to upload.';
+                uploadMessage.style.display = 'block';
+                return;
+            }
+
+            uploadMessage.classList.add('info');
+            uploadMessage.textContent = 'Uploading file and queuing scan...';
+            uploadMessage.style.display = 'block';
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Get selected engine settings
+            const selectedEngines = {
+                truffleHog: document.getElementById('engineTruffleHog').checked,
+                gitleaks: document.getElementById('engineGitleaks').checked,
+                // Add other engines here
+            };
+            formData.append('selected_engines', JSON.stringify(selectedEngines));
+
+            try {
+                // Step 1: Upload the file and queue the scan
+                const uploadResponse = await fetch('/scan', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!uploadResponse.ok) {
+                    const errorData = await uploadResponse.json();
+                    throw new Error(errorData.detail || 'File upload failed.');
+                }
+
+                const uploadData = await uploadResponse.json();
+                uploadMessage.className = 'message success';
+                uploadMessage.textContent = `File '${file.name}' uploaded. Scan ID: ${uploadData.scan_id}. Scan queued. History will update shortly.`;
+                uploadMessage.style.display = 'block';
+
+                // After queuing, refresh the history to show the new queued item
+                await fetchAndRenderHistory();
+
+            } catch (error) {
+                uploadMessage.className = 'message error';
+                uploadMessage.textContent = `Error: ${error.message}`;
+                console.error('Scan error:', error);
+            }
+        }
+
+        // Fetch and render history when the page loads
+        window.onload = function() {
+            loadEngineSettings();
+            fetchAndRenderHistory();
+        };
+
+        function loadEngineSettings() {
+            const savedSettings = JSON.parse(localStorage.getItem('scanEngineSettings')) || {};
+            document.getElementById('engineTruffleHog').checked = savedSettings.truffleHog !== false; // Default to checked
+            document.getElementById('engineGitleaks').checked = savedSettings.gitleaks !== false; // Default to checked
+            // Add other engines here as they are implemented
+        }
+
+        function saveEngineSettings() {
+            const settingsMessage = document.getElementById('settingsMessage');
+            try {
+                const settings = {
+                    truffleHog: document.getElementById('engineTruffleHog').checked,
+                    gitleaks: document.getElementById('engineGitleaks').checked,
+                    // Add other engines here
+                };
+                localStorage.setItem('scanEngineSettings', JSON.stringify(settings));
+                settingsMessage.className = 'message success';
+                settingsMessage.textContent = 'Engine settings saved successfully!';
+                settingsMessage.style.display = 'block';
+            } catch (error) {
+                settingsMessage.className = 'message error';
+                settingsMessage.textContent = `Error saving settings: ${error.message}`;
+                console.error('Error saving engine settings:', error);
+            }
+            setTimeout(() => { settingsMessage.style.display = 'none'; }, 3000);
+        }
+    </script>
+</body>
+</html>

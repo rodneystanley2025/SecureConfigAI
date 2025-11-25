@@ -176,3 +176,4 @@ Thumbs.db
 #except for
 !.env.example
 tests/test_data.json
+/temp/

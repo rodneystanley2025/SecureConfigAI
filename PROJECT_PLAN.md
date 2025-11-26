@@ -77,6 +77,5 @@ We don't have to start everything from scratch. We can strategically reuse asset
 
 
 curl -X POST -F "file=@test_config.txt" http://localhost:8000/scan
-
-AIzaSyD5HQabGpB1CY7DmRvJZoSigo0PYeXokgY
+etc. etc.
 
